@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatbot RAG</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <header class="hero">
+          <h1>Como posso te ajudar?</h1>
+          <p class="subtitle">
+            Faça uma pergunta sobre os dados da base e receba uma resposta contextualizada.
+          </p>
+        </header>
+
+        <section class="quick-questions" aria-label="Perguntas prontas">
+          <div class="quick-questions-list">
+            <button type="button" class="quick-question-btn" data-question="Quais ações educativas são presenciais?">
+              Quais ações educativas são presenciais?
+            </button>
+            <button type="button" class="quick-question-btn" data-question="Quais ações têm maior carga horária?">
+              Quais ações têm maior carga horária?
+            </button>
+            <button type="button" class="quick-question-btn" data-question="Quais cursos são voltados para inteligência penitenciária?">
+              Quais cursos são voltados para inteligência penitenciária?
+            </button>
+            <button type="button" class="quick-question-btn" data-question="Quais ações não possuem tipo da ação definido?">
+              Quais ações não possuem tipo da ação definido?
+            </button>
+            <button type="button" class="quick-question-btn" data-question="Quais ações são destinadas a policiais penais?">
+              Quais ações são destinadas a policiais penais?
+            </button>
+          </div>
+        </section>
+
+        <div id="chat" class="chat"></div>
+
+        <form id="chat-form" class="chat-form">
+          <textarea
+            id="question"
+            rows="3"
+            placeholder="Pergunte qualquer coisa sobre a base EGC..."
+            required
+          ></textarea>
+          <div class="composer-footer">
+            <span class="model-badge">Base EGC</span>
+            <button type="submit" class="send-btn">Enviar</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
