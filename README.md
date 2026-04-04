@@ -101,6 +101,31 @@ Abrir no navegador:
 
 `http://127.0.0.1:8000`
 
+## Deploy na Vercel
+
+Este projeto pode subir na Vercel usando Python Serverless Function.
+
+1. Importe o repositorio na Vercel.
+2. Em `Settings > Environment Variables`, configure:
+
+```env
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+DATABASE_URL=sqlite:///./data/local.db
+TARGET_TABLE=rag_docs
+TARGET_ID_COLUMN=id
+TARGET_TEXT_COLUMNS=titulo,cadastro,conteudo
+MAX_ROWS=2000
+TOP_K=6
+```
+
+3. Faça o deploy normalmente.
+
+Observacao importante:
+- Na Vercel, o indice vetorial e gravado em `/tmp/vector_index.json` em runtime.
+- Esse arquivo e temporario (por instancia). Se a instancia reiniciar, o indice e recriado automaticamente na primeira pergunta.
+
 ## Fluxo de uso
 
 1. Abra o chat no navegador.

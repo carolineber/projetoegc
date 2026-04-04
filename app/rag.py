@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 
 from openai import OpenAI
@@ -9,7 +10,12 @@ from openai import OpenAI
 from app.config import Settings
 from app.db import fetch_rows
 
-INDEX_PATH = Path("data/vector_index.json")
+# In Vercel serverless, code directory is read-only; use /tmp for runtime artifacts.
+INDEX_PATH = (
+    Path("/tmp/vector_index.json")
+    if os.getenv("VERCEL") == "1"
+    else Path("data/vector_index.json")
+)
 
 
 def _row_to_text(row: dict, text_columns: list[str]) -> str:
