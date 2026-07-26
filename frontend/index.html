@@ -3,53 +3,124 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chatbot RAG</title>
+    <meta
+      name="description"
+      content="Interface de Coprodução TransHumana da ESPEN."
+    />
+    <title>Interface de Coprodução TransHumana</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <main class="page">
-      <section class="panel">
-        <header class="hero">
-          <h1>Como posso te ajudar?</h1>
-          <p class="subtitle">
-            Faça uma pergunta sobre os dados da base e receba uma resposta contextualizada.
-          </p>
+      <section id="module-selector" class="module-selector" aria-labelledby="main-title">
+        <header class="landing-header">
+          <p class="eyebrow">ESPEN · Inteligência colaborativa</p>
+          <h1 id="main-title">Interface de Coprodução <span>TransHumana</span></h1>
+          <p class="landing-subtitle">Escolha um agente para iniciar uma nova coprodução.</p>
         </header>
 
-        <section class="quick-questions" aria-label="Perguntas prontas">
-          <div class="quick-questions-list">
-            <button type="button" class="quick-question-btn" data-question="Quais ações educativas são presenciais?">
-              Quais ações educativas são presenciais?
+        <div class="agent-grid">
+          <button id="open-neoprofessor" type="button" class="agent-card agent-card-active">
+            <span class="agent-card-topline">
+              <span class="agent-number">01</span>
+              <span class="agent-status">Disponível</span>
+            </span>
+            <span class="agent-name">Neoprofessor ESPEN</span>
+            <span class="agent-description">
+              Consultoria Pedagógica &amp; Planejamento de Ações Educativas
+            </span>
+            <span class="agent-action" aria-hidden="true">Acessar agente <span>→</span></span>
+          </button>
+
+          <button
+            type="button"
+            class="agent-card agent-card-disabled"
+            aria-disabled="true"
+            disabled
+          >
+            <span class="agent-card-topline">
+              <span class="agent-number">02</span>
+              <span class="agent-status">Em construção</span>
+            </span>
+            <span class="agent-name">Gestor</span>
+            <span class="agent-description">
+              Revisão e Conformidade plus Desenvolvimento Docente
+            </span>
+            <span class="agent-action" aria-hidden="true">Disponível em breve</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="agent-workspace" class="agent-workspace" aria-labelledby="agent-title" hidden>
+        <header class="workspace-header">
+          <div class="workspace-controls">
+            <button id="back-to-modules" type="button" class="back-button">
+              <span aria-hidden="true">←</span> Agentes
             </button>
-            <button type="button" class="quick-question-btn" data-question="Quais ações têm maior carga horária?">
-              Quais ações têm maior carga horária?
-            </button>
-            <button type="button" class="quick-question-btn" data-question="Quais cursos são voltados para inteligência penitenciária?">
-              Quais cursos são voltados para inteligência penitenciária?
-            </button>
-            <button type="button" class="quick-question-btn" data-question="Quais ações não possuem tipo da ação definido?">
-              Quais ações não possuem tipo da ação definido?
-            </button>
-            <button type="button" class="quick-question-btn" data-question="Quais ações são destinadas a policiais penais?">
-              Quais ações são destinadas a policiais penais?
+            <button id="new-consultation" type="button" class="new-consultation-button">
+              Nova consultoria
             </button>
           </div>
-        </section>
-
-        <div id="chat" class="chat"></div>
-
-        <form id="chat-form" class="chat-form">
-          <textarea
-            id="question"
-            rows="3"
-            placeholder="Pergunte qualquer coisa sobre a base EGC..."
-            required
-          ></textarea>
-          <div class="composer-footer">
-            <span class="model-badge">Base EGC</span>
-            <button type="submit" class="send-btn">Enviar</button>
+          <div class="agent-identity">
+            <span class="live-dot" aria-hidden="true"></span>
+            <div>
+              <p class="workspace-kicker">Agente</p>
+              <h2 id="agent-title">Neoprofessor ESPEN</h2>
+              <p>Consultoria Pedagógica &amp; Planejamento de Ações Educativas</p>
+            </div>
           </div>
-        </form>
+        </header>
+
+        <div class="workspace-content">
+          <button
+            id="open-matrix"
+            type="button"
+            class="matrix-access"
+          >
+            <span>Consultar Matriz Curricular Nacional (MCN)</span>
+            <strong aria-hidden="true">↗</strong>
+          </button>
+
+          <section class="quick-questions" aria-label="Perguntas prontas">
+            <p class="section-label">Para começar</p>
+            <div class="quick-questions-list">
+              <button type="button" class="quick-question-btn" data-question="Tenho um problema de desempenho que talvez exija uma ação educativa. Ajude-me a estruturar o diagnóstico antes de propor soluções.">
+                Tenho um problema de desempenho que talvez exija uma ação educativa. Ajude-me a estruturar o diagnóstico antes de propor soluções.
+              </button>
+              <button type="button" class="quick-question-btn" data-question="Quero revisar uma ação educativa existente e verificar quais competências da MCN 2026 ela já contempla e quais podem estar faltando.">
+                Quero revisar uma ação educativa existente e verificar quais competências da MCN 2026 ela já contempla e quais podem estar faltando.
+              </button>
+              <button type="button" class="quick-question-btn" data-question="Quais competências da MCN se relacionam a direitos humanos?">
+                Quais competências da MCN se relacionam a direitos humanos?
+              </button>
+              <button type="button" class="quick-question-btn" data-question="Ajude a planejar uma ação educativa com base na MCN 2026.">
+                Ajude a planejar uma ação educativa com base na MCN 2026.
+              </button>
+            </div>
+          </section>
+
+          <div id="chat" class="chat" aria-live="polite"></div>
+
+          <div id="consultation-status" class="consultation-status" hidden>
+            <span id="consultation-stage">Etapa: diagnóstico</span>
+            <span id="consultation-checkpoint"></span>
+          </div>
+
+          <form id="chat-form" class="chat-form">
+            <label class="sr-only" for="question">Mensagem para o Neoprofessor ESPEN</label>
+            <textarea
+              id="question"
+              rows="3"
+              placeholder="Converse com o Neoprofessor ESPEN..."
+              aria-keyshortcuts="Enter"
+              required
+            ></textarea>
+            <div class="composer-footer">
+              <span class="model-badge">Ações Educativas + Matriz Curricular Nacional</span>
+              <button type="submit" class="send-btn">Enviar <span aria-hidden="true">↑</span></button>
+            </div>
+          </form>
+        </div>
       </section>
     </main>
 

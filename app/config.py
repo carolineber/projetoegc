@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+NEOPROFESSOR_MODEL = "gpt-4o-mini"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -28,14 +30,16 @@ def _split_csv(value: str) -> list[str]:
 def get_settings() -> Settings:
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        openai_model=NEOPROFESSOR_MODEL,
         openai_embedding_model=os.getenv(
             "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
-        database_url=os.getenv("DATABASE_URL", ""),
-        target_table=os.getenv("TARGET_TABLE", ""),
+        database_url=os.getenv("DATABASE_URL", "sqlite:///./data/local.db"),
+        target_table=os.getenv("TARGET_TABLE", "rag_docs"),
         target_id_column=os.getenv("TARGET_ID_COLUMN", "id"),
-        target_text_columns=_split_csv(os.getenv("TARGET_TEXT_COLUMNS", "")),
+        target_text_columns=_split_csv(
+            os.getenv("TARGET_TEXT_COLUMNS", "titulo,cadastro,conteudo")
+        ),
         max_rows=int(os.getenv("MAX_ROWS", "2000")),
         top_k=int(os.getenv("TOP_K", "6")),
     )

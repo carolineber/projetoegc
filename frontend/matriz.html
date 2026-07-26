@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Quadro interativo da Matriz Curricular Nacional 2026."
+    />
+    <title>Matriz Curricular Nacional 2026</title>
+    <link rel="stylesheet" href="/static/matriz.css" />
+  </head>
+  <body>
+    <main class="matrix-page">
+      <header class="matrix-header">
+        <a class="back-link" href="/" aria-label="Voltar à interface principal">
+          ← Interface principal
+        </a>
+        <p class="eyebrow">ESPEN · Base documental</p>
+        <h1>Matriz Curricular <span>Nacional</span></h1>
+        <div class="header-bottom">
+          <p>
+            Consulte competências, eixos, unidades temáticas, conhecimentos
+            críticos e objetivos de aprendizagem da MCN 2026.
+          </p>
+        </div>
+      </header>
+
+      <section class="matrix-board" aria-labelledby="board-title">
+        <div class="board-title-row">
+          <div>
+            <p class="section-index">QUADRO 01</p>
+            <h2 id="board-title">Competências e referências</h2>
+          </div>
+          <button id="clear-filters" class="clear-button" type="button">
+            Limpar filtros
+          </button>
+        </div>
+
+        <div class="filters">
+          <label class="search-field">
+            <span>Pesquisar</span>
+            <input
+              id="search"
+              type="search"
+              placeholder="Competência, conhecimento, objetivo..."
+            />
+          </label>
+          <label>
+            <span>Categoria</span>
+            <select id="category-filter">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label>
+            <span>Eixo funcional</span>
+            <select id="axis-filter">
+              <option value="">Todos</option>
+            </select>
+          </label>
+          <label>
+            <span>Unidade temática</span>
+            <select id="unit-filter">
+              <option value="">Todas</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="results-meta" aria-live="polite">
+          <span id="results-count">Carregando registros…</span>
+          <span>Clique em “Detalhes” para abrir o registro completo.</span>
+        </div>
+
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Competência</th>
+                <th scope="col">Eixo / unidade</th>
+                <th scope="col">Conhecimento crítico</th>
+                <th scope="col">Objetivo de aprendizagem</th>
+                <th scope="col">Ação</th>
+              </tr>
+            </thead>
+            <tbody id="matrix-body"></tbody>
+          </table>
+          <p id="empty-state" class="empty-state" hidden>
+            Nenhum registro corresponde aos filtros selecionados.
+          </p>
+        </div>
+
+        <nav class="pagination" aria-label="Paginação dos registros">
+          <button id="previous-page" type="button">← Anterior</button>
+          <span id="page-indicator">Página 1 de 1</span>
+          <button id="next-page" type="button">Próxima →</button>
+        </nav>
+      </section>
+    </main>
+
+    <script src="/static/matriz.js"></script>
+  </body>
+</html>

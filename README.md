@@ -1,15 +1,21 @@
-# Chatbot RAG com OpenAI + Banco de Dados
+# Interface de Coprodução TransHumana
 
 Projeto pronto para criar um chatbot que responde com base no seu banco, usando RAG.
 
-Este projeto ja esta configurado para usar SQLite local gerado a partir de `espens_clean.xlsx`.
+O Neoprofessor ESPEN usa uma base SQLite local gerada a partir de:
+
+- `espens_clean.xlsx`
+- `_2.1._MCN 2026 SPB-3_07.04.2026.docx`
 
 ## O que ele faz
 
 - Conecta em um banco SQL via `DATABASE_URL`.
 - Lê dados de uma tabela e colunas que voce definir.
 - Cria um indice vetorial local (`data/vector_index.json`) com embeddings da OpenAI.
-- Recebe perguntas e responde com contexto recuperado desse indice.
+- Usa LangChain para estruturar prompts, respostas tipadas e embeddings da OpenAI.
+- Mantém estado e memória rastreável por sessão de consultoria.
+- Aplica portões de avanço e validações antes do planejamento.
+- Recebe perguntas e responde com contexto recuperado das duas bases separadas.
 - Frontend simples em HTML + CSS + JS para facilitar deploy.
 
 ## Requisitos
@@ -33,7 +39,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-4. Gere/atualize o SQLite local a partir do XLSX:
+4. Gere/atualize o SQLite local a partir da planilha e do documento MCN:
 
 ```bash
 python app/build_sqlite_from_csv.py
@@ -45,7 +51,7 @@ Exemplo para SQLite local (padrao deste projeto):
 
 ```env
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 DATABASE_URL=sqlite:///./data/local.db
@@ -60,7 +66,7 @@ Exemplo para Postgres:
 
 ```env
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 DATABASE_URL=postgresql+psycopg://usuario:senha@localhost:5432/meubanco
@@ -110,7 +116,7 @@ Este projeto pode subir na Vercel usando Python Serverless Function.
 
 ```env
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 DATABASE_URL=sqlite:///./data/local.db
 TARGET_TABLE=rag_docs
