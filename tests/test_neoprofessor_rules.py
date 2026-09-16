@@ -4,7 +4,12 @@ import unittest
 from copy import deepcopy
 
 from app.consultation_state import DEFAULT_STATE
-from app.neoprofessor import _merge_state, _validate_answer, determine_stage
+from app.neoprofessor import (
+    _merge_state,
+    _usage_totals,
+    _validate_answer,
+    determine_stage,
+)
 
 
 def agent_output(**overrides) -> dict:
@@ -31,6 +36,17 @@ def agent_output(**overrides) -> dict:
 
 
 class NeoprofessorRulesTest(unittest.TestCase):
+    def test_usage_totals_sum_model_metadata(self) -> None:
+        self.assertEqual(
+            _usage_totals(
+                {
+                    "model-a": {"input_tokens": 120, "output_tokens": 30},
+                    "model-b": {"input_tokens": 10, "output_tokens": 5},
+                }
+            ),
+            (130, 35),
+        )
+
     def test_diagnostic_gate_blocks_premature_planning(self) -> None:
         state = deepcopy(DEFAULT_STATE)
         state["recomendacoes_do_agente"] = ["Criar uma trilha."]

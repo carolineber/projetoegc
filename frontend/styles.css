@@ -90,7 +90,12 @@ h1 {
   letter-spacing: -0.055em;
 }
 
-h1 span {
+h1 .title-prefix {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+h1 .title-accent {
   display: inline;
   color: var(--accent);
   text-decoration: underline;
@@ -464,6 +469,48 @@ h1 span {
   border: 2px solid var(--line);
 }
 
+.feedback-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--accent-soft);
+}
+
+.feedback-prompt,
+.feedback-status {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.feedback-button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 3px 7px;
+  border: 2px solid var(--line);
+  background: var(--surface-elevated);
+  cursor: pointer;
+}
+
+.feedback-button:hover,
+.feedback-button-selected {
+  background: var(--accent-soft);
+}
+
+.feedback-button-selected {
+  box-shadow: 3px 3px 0 var(--accent);
+}
+
+.feedback-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.feedback-status {
+  margin-left: auto;
+}
+
 .chat-form {
   margin-top: 12px;
   border: 3px solid var(--line-strong);
@@ -610,6 +657,15 @@ textarea:focus {
   .consultation-status {
     flex-direction: column;
     gap: 5px;
+  }
+
+  .feedback-controls {
+    flex-wrap: wrap;
+  }
+
+  .feedback-status {
+    width: 100%;
+    margin-left: 0;
   }
 }
 

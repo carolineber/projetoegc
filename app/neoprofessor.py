@@ -4,12 +4,15 @@ import json
 import re
 import unicodedata
 from typing import Any
+from uuid import uuid4
 
+from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from app.config import NEOPROFESSOR_MODEL, Settings
+from app.analytics import record_interaction
 from app.consultation_state import (
     append_message,
     checkpoint_summary,
@@ -330,6 +333,18 @@ def _consultation_context(state: dict) -> str:
     ).strip()
 
 
+def _usage_totals(usage_metadata: dict) -> tuple[int, int]:
+    input_tokens = sum(
+        int(usage.get("input_tokens", 0))
+        for usage in usage_metadata.values()
+    )
+    output_tokens = sum(
+        int(usage.get("output_tokens", 0))
+        for usage in usage_metadata.values()
+    )
+    return input_tokens, output_tokens
+
+
 def run_consultation(
     question: str,
     settings: Settings,
@@ -370,16 +385,18 @@ def run_consultation(
         strict=True,
     )
     chain = CONSULTATION_PROMPT | structured_model
-    structured_output = chain.invoke(
-        {
-            "state_json": json.dumps(state, ensure_ascii=False),
-            "recent_messages_json": json.dumps(
-                recent_messages, ensure_ascii=False
-            ),
-            "rag_context": context_text,
-            "question": question,
-        }
-    )
+    with get_usage_metadata_callback() as usage_callback:
+        structured_output = chain.invoke(
+            {
+                "state_json": json.dumps(state, ensure_ascii=False),
+                "recent_messages_json": json.dumps(
+                    recent_messages, ensure_ascii=False
+                ),
+                "rag_context": context_text,
+                "question": question,
+            }
+        )
+    input_tokens, output_tokens = _usage_totals(usage_callback.usage_metadata)
     if not isinstance(structured_output, AgentOutput):
         raise ValueError("O modelo não retornou uma resposta estruturada utilizável.")
     output = structured_output.model_dump()
@@ -388,6 +405,7 @@ def run_consultation(
         state, bool(output.get("requires_human_validation"))
     )
     answer = _validate_answer(str(output["answer"]), state)
+    response_id = str(uuid4())
 
     append_message(session_id, "user", question)
     append_message(
@@ -400,14 +418,28 @@ def run_consultation(
             "requires_human_validation": bool(
                 output.get("requires_human_validation")
             ),
+            "response_id": response_id,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         },
     )
     save_state(session_id, state)
+    record_interaction(
+        settings.analytics_database_url,
+        session_id=session_id,
+        response_id=response_id,
+        user_message=question,
+        assistant_response=answer,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        model=NEOPROFESSOR_MODEL,
+    )
 
     return {
         "answer": answer,
         "sources": sources,
         "session_id": session_id,
+        "response_id": response_id,
         "stage": state["estado_atual"],
         "checkpoint": checkpoint_summary(state),
         "requires_human_validation": bool(

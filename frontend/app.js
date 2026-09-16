@@ -12,8 +12,7 @@ const openMatrixEl = document.getElementById("open-matrix");
 const consultationStatusEl = document.getElementById("consultation-status");
 const consultationStageEl = document.getElementById("consultation-stage");
 const consultationCheckpointEl = document.getElementById("consultation-checkpoint");
-const sessionStorageKey = "neoprofessor_session_id";
-let consultationSessionId = window.localStorage.getItem(sessionStorageKey);
+let consultationSessionId = null;
 
 function openAgent() {
   moduleSelectorEl.hidden = true;
@@ -31,7 +30,6 @@ function closeAgent() {
 
 function resetConsultation() {
   consultationSessionId = null;
-  window.localStorage.removeItem(sessionStorageKey);
   chatEl.replaceChildren();
   consultationStatusEl.hidden = true;
   questionEl.value = "";
@@ -119,6 +117,69 @@ function addMessage(text, role) {
 
   chatEl.appendChild(item);
   chatEl.scrollTop = chatEl.scrollHeight;
+  return item;
+}
+
+function addFeedbackControls(messageEl, responseId, sessionId) {
+  const controls = document.createElement("div");
+  controls.className = "feedback-controls";
+
+  const prompt = document.createElement("span");
+  prompt.className = "feedback-prompt";
+  prompt.textContent = "Esta resposta foi útil?";
+  controls.appendChild(prompt);
+
+  const status = document.createElement("span");
+  status.className = "feedback-status";
+  status.setAttribute("aria-live", "polite");
+
+  for (const [rating, symbol, label] of [
+    ["up", "👍", "Resposta útil"],
+    ["down", "👎", "Resposta não útil"],
+  ]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "feedback-button";
+    button.dataset.rating = rating;
+    button.textContent = symbol;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", async () => {
+      const buttons = controls.querySelectorAll(".feedback-button");
+      buttons.forEach((item) => { item.disabled = true; });
+      status.textContent = "Salvando...";
+
+      try {
+        const response = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            response_id: responseId,
+            rating,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || "Falha ao salvar a avaliação.");
+        }
+
+        buttons.forEach((item) => {
+          item.classList.toggle("feedback-button-selected", item.dataset.rating === rating);
+          item.setAttribute("aria-pressed", String(item.dataset.rating === rating));
+        });
+        status.textContent = "Avaliação registrada";
+      } catch (error) {
+        status.textContent = "Não foi possível registrar";
+      } finally {
+        buttons.forEach((item) => { item.disabled = false; });
+      }
+    });
+    controls.appendChild(button);
+  }
+
+  controls.appendChild(status);
+  messageEl.appendChild(controls);
 }
 
 async function submitQuestion(rawQuestion) {
@@ -150,8 +211,8 @@ async function submitQuestion(rawQuestion) {
     }
 
     consultationSessionId = data.session_id;
-    window.localStorage.setItem(sessionStorageKey, consultationSessionId);
-    addMessage(data.answer, "bot");
+    const answerEl = addMessage(data.answer, "bot");
+    addFeedbackControls(answerEl, data.response_id, data.session_id);
     updateConsultationStatus(data);
   } catch (error) {
     addMessage(`Erro: ${error.message}`, "bot");
