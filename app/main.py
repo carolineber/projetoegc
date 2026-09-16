@@ -78,9 +78,19 @@ def chat(body: ChatRequest) -> ChatResponse:
     except FileNotFoundError as exc:
         try:
             build_index(settings)
-            result = run_consultation(body.question, settings, body.session_id)
         except Exception as index_exc:
             raise HTTPException(status_code=400, detail=str(index_exc)) from exc
+        try:
+            result = run_consultation(body.question, settings, body.session_id)
+        except ValueError as consultation_exc:
+            raise HTTPException(
+                status_code=400, detail=str(consultation_exc)
+            ) from consultation_exc
+        except Exception as consultation_exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Não foi possível concluir a consulta neste momento.",
+            ) from consultation_exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

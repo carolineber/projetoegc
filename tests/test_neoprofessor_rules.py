@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import unittest
 from copy import deepcopy
+from unittest.mock import patch
 
+from app.config import get_settings
 from app.consultation_state import DEFAULT_STATE
 from app.neoprofessor import (
     LearningPathStep,
@@ -44,6 +46,20 @@ def agent_output(**overrides) -> dict:
 
 
 class NeoprofessorRulesTest(unittest.TestCase):
+    def test_completion_limit_defaults_to_eight_thousand_tokens(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            settings = get_settings()
+
+        self.assertEqual(settings.openai_max_completion_tokens, 8000)
+
+    def test_completion_limit_can_be_configured(self) -> None:
+        with patch.dict(
+            "os.environ", {"OPENAI_MAX_COMPLETION_TOKENS": "10000"}, clear=True
+        ):
+            settings = get_settings()
+
+        self.assertEqual(settings.openai_max_completion_tokens, 10000)
+
     def test_rationale_uses_canonical_mcn_source_name(self) -> None:
         rationale = {
             "summary": "Recomendação.",
