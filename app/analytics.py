@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from functools import lru_cache
 
@@ -19,6 +20,8 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 
 metadata = MetaData()
+MCN_SOURCE_LABEL = "Matriz Curricular Nacional - 2026"
+ACTIONS_SOURCE_LABEL = "Ações Educativas ESPEN"
 
 chat_sessions = Table(
     "chat_sessions",
@@ -47,6 +50,34 @@ chat_interactions = Table(
     Column("model", String(120), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("feedback_at", DateTime(timezone=True), nullable=True),
+)
+
+chat_explanations = Table(
+    "chat_explanations",
+    metadata,
+    Column(
+        "response_id",
+        String(36),
+        ForeignKey("chat_interactions.id"),
+        primary_key=True,
+    ),
+    Column("session_id", String(36), nullable=False, index=True),
+    Column("explanation_json", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+chat_teaching_plans = Table(
+    "chat_teaching_plans",
+    metadata,
+    Column(
+        "response_id",
+        String(36),
+        ForeignKey("chat_interactions.id"),
+        primary_key=True,
+    ),
+    Column("session_id", String(36), nullable=False, index=True),
+    Column("plan_json", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
 
@@ -82,6 +113,8 @@ def record_interaction(
     input_tokens: int,
     output_tokens: int,
     model: str,
+    explanation: dict | None = None,
+    teaching_plan: dict | None = None,
 ) -> None:
     engine = _engine(database_url)
     timestamp = _now()
@@ -109,6 +142,75 @@ def record_interaction(
                 feedback_at=None,
             )
         )
+        if explanation:
+            connection.execute(
+                chat_explanations.insert().values(
+                    response_id=response_id,
+                    session_id=session_id,
+                    explanation_json=json.dumps(explanation, ensure_ascii=False),
+                    created_at=timestamp,
+                )
+            )
+        if teaching_plan:
+            connection.execute(
+                chat_teaching_plans.insert().values(
+                    response_id=response_id,
+                    session_id=session_id,
+                    plan_json=json.dumps(teaching_plan, ensure_ascii=False),
+                    created_at=timestamp,
+                )
+            )
+
+
+def get_teaching_plan(
+    database_url: str,
+    *,
+    session_id: str,
+    response_id: str,
+) -> dict:
+    engine = _engine(database_url)
+    with engine.connect() as connection:
+        stored = connection.execute(
+            select(chat_teaching_plans.c.plan_json).where(
+                chat_teaching_plans.c.response_id == response_id,
+                chat_teaching_plans.c.session_id == session_id,
+            )
+        ).scalar_one_or_none()
+
+    if stored is None:
+        raise ValueError("Plano de ensino não encontrado para esta resposta.")
+    return json.loads(stored)
+
+
+def get_explanation(
+    database_url: str,
+    *,
+    session_id: str,
+    response_id: str,
+) -> dict:
+    engine = _engine(database_url)
+    with engine.connect() as connection:
+        stored = connection.execute(
+            select(chat_explanations.c.explanation_json).where(
+                chat_explanations.c.response_id == response_id,
+                chat_explanations.c.session_id == session_id,
+            )
+        ).scalar_one_or_none()
+
+    if stored is None:
+        raise ValueError("Justificativa não encontrada para esta resposta.")
+    explanation = json.loads(stored)
+    normalized_evidence: list[str] = []
+    for item in explanation.get("evidence", []):
+        item_text = str(item)
+        normalized_item = item_text.casefold()
+        if "mcn" in normalized_item or "matriz curricular nacional" in normalized_item:
+            item_text = MCN_SOURCE_LABEL
+        elif "espens_clean.xlsx" in normalized_item:
+            item_text = ACTIONS_SOURCE_LABEL
+        normalized_evidence.append(item_text)
+    explanation["evidence"] = list(dict.fromkeys(normalized_evidence))
+    return explanation
 
 
 def update_feedback(

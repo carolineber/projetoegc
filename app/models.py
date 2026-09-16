@@ -16,6 +16,17 @@ class ChatResponse(BaseModel):
     stage: str
     checkpoint: str
     requires_human_validation: bool
+    has_explanation: bool
+    has_teaching_plan: bool
+
+
+class ExplanationResponse(BaseModel):
+    summary: str
+    confirmed_inputs: list[str]
+    evidence: list[str]
+    pedagogical_criteria: list[str]
+    tradeoffs: list[str]
+    limitations: list[str]
 
 
 class FeedbackRequest(BaseModel):

@@ -101,11 +101,6 @@
 
           <div id="chat" class="chat" aria-live="polite"></div>
 
-          <div id="consultation-status" class="consultation-status" hidden>
-            <span id="consultation-stage">Etapa: diagnóstico</span>
-            <span id="consultation-checkpoint"></span>
-          </div>
-
           <form id="chat-form" class="chat-form">
             <label class="sr-only" for="question">Mensagem para o Neoprofessor ESPEN</label>
             <textarea
@@ -120,6 +115,25 @@
               <button type="submit" class="send-btn">Enviar <span aria-hidden="true">↑</span></button>
             </div>
           </form>
+
+          <section id="consultation-status" class="consultation-status" aria-label="Progresso da consultoria">
+            <div class="progress-heading">
+              <div class="progress-stage-copy">
+                <span id="consultation-stage">Etapa atual: diagnóstico</span>
+                <span id="consultation-stage-description" class="progress-stage-description">
+                  Compreender o problema, o público e o desempenho esperado.
+                </span>
+              </div>
+              <span id="consultation-checkpoint"></span>
+            </div>
+            <ol id="consultation-progress" class="consultation-progress">
+              <li class="progress-step progress-step-current" data-stage="DIAGNOSTICO" aria-current="step">Diagnóstico</li>
+              <li class="progress-step" data-stage="DELIMITACAO">Delimitação</li>
+              <li class="progress-step" data-stage="ALTERNATIVAS">Alternativas</li>
+              <li class="progress-step" data-stage="VALIDACAO">Validação</li>
+              <li class="progress-step" data-stage="PLANEJAMENTO">Plano de ensino</li>
+            </ol>
+          </section>
         </div>
       </section>
     </main>
