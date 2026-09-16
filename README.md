@@ -1,4 +1,4 @@
-# Interface de Coprodução TransHumana
+# Assistente de Inteligência Curricular
 
 Projeto pronto para criar um chatbot que responde com base no seu banco, usando RAG.
 
@@ -14,6 +14,7 @@ O Neoprofessor ESPEN usa uma base SQLite local gerada a partir de:
 - Cria um indice vetorial local (`data/vector_index.json`) com embeddings da OpenAI.
 - Usa LangChain para estruturar prompts, respostas tipadas e embeddings da OpenAI.
 - Mantém estado e memória rastreável por sessão de consultoria.
+- Registra sessões, interações, avaliações e consumo de tokens em um banco analítico.
 - Aplica portões de avanço e validações antes do planejamento.
 - Recebe perguntas e responde com contexto recuperado das duas bases separadas.
 - Frontend simples em HTML + CSS + JS para facilitar deploy.
@@ -55,6 +56,7 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
 DATABASE_URL=sqlite:///./data/local.db
+ANALYTICS_DATABASE_URL=postgresql://usuario:senha@host/neondb?sslmode=require
 TARGET_TABLE=rag_docs
 TARGET_ID_COLUMN=id
 TARGET_TEXT_COLUMNS=titulo,cadastro,conteudo
@@ -142,6 +144,12 @@ Observacao importante:
 
 - `POST /api/index`: indexa os dados da tabela configurada.
 - `POST /api/chat`: responde perguntas com base no contexto recuperado.
+- `POST /api/feedback`: registra uma avaliação positiva ou negativa de uma resposta.
+
+As tabelas `chat_sessions` e `chat_interactions` são criadas automaticamente no
+banco definido por `ANALYTICS_DATABASE_URL`. Cada atualização da página inicia
+uma nova sessão; as mensagens seguintes, sem atualizar a página, permanecem na
+mesma sessão.
 
 Observacao: o endpoint `POST /api/index` continua disponivel caso voce queira forcar reindexacao manual apos atualizar o banco.
 

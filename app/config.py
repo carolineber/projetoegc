@@ -21,6 +21,7 @@ class Settings:
     target_text_columns: list[str]
     max_rows: int
     top_k: int
+    analytics_database_url: str = "sqlite:///./data/chat_analytics.db"
 
 
 def _split_csv(value: str) -> list[str]:
@@ -28,6 +29,11 @@ def _split_csv(value: str) -> list[str]:
 
 
 def get_settings() -> Settings:
+    default_analytics_url = (
+        "sqlite:////tmp/chat_analytics.db"
+        if os.getenv("VERCEL") == "1"
+        else "sqlite:///./data/chat_analytics.db"
+    )
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         openai_model=NEOPROFESSOR_MODEL,
@@ -35,6 +41,9 @@ def get_settings() -> Settings:
             "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
         database_url=os.getenv("DATABASE_URL", "sqlite:///./data/local.db"),
+        analytics_database_url=os.getenv(
+            "ANALYTICS_DATABASE_URL", default_analytics_url
+        ),
         target_table=os.getenv("TARGET_TABLE", "rag_docs"),
         target_id_column=os.getenv("TARGET_ID_COLUMN", "id"),
         target_text_columns=_split_csv(

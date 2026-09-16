@@ -7,13 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.analytics import update_feedback
 from app.config import get_settings
 from app.db import fetch_mcn_rows
-from app.models import ChatRequest, ChatResponse, IndexResponse
+from app.models import (
+    ChatRequest,
+    ChatResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    IndexResponse,
+)
 from app.neoprofessor import run_consultation
 from app.rag import build_index
 
-app = FastAPI(title="Interface de Coprodução TransHumana")
+app = FastAPI(title="Assistente de Inteligência Curricular")
 settings = get_settings()
 
 app.add_middleware(
@@ -81,3 +88,23 @@ def chat(body: ChatRequest) -> ChatResponse:
         ) from exc
 
     return ChatResponse(**result)
+
+
+@app.post("/api/feedback", response_model=FeedbackResponse)
+def feedback(body: FeedbackRequest) -> FeedbackResponse:
+    try:
+        update_feedback(
+            settings.analytics_database_url,
+            session_id=body.session_id,
+            response_id=body.response_id,
+            rating=body.rating,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível registrar a avaliação neste momento.",
+        ) from exc
+
+    return FeedbackResponse(saved=True, rating=body.rating)

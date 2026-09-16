@@ -4,3 +4,4 @@ __pycache__/
 .env
 data/vector_index.json
 data/neoprofessor_state.db
+data/chat_analytics.db
