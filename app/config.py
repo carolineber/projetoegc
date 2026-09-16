@@ -22,6 +22,7 @@ class Settings:
     max_rows: int
     top_k: int
     analytics_database_url: str = "sqlite:///./data/chat_analytics.db"
+    openai_max_completion_tokens: int = 8000
 
 
 def _split_csv(value: str) -> list[str]:
@@ -43,6 +44,9 @@ def get_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", "sqlite:///./data/local.db"),
         analytics_database_url=os.getenv(
             "ANALYTICS_DATABASE_URL", default_analytics_url
+        ),
+        openai_max_completion_tokens=int(
+            os.getenv("OPENAI_MAX_COMPLETION_TOKENS", "8000")
         ),
         target_table=os.getenv("TARGET_TABLE", "rag_docs"),
         target_id_column=os.getenv("TARGET_ID_COLUMN", "id"),

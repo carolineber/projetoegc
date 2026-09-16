@@ -298,6 +298,11 @@ EVIDÊNCIAS RAG AUTORIZADAS E SEPARADAS POR BASE:
 MODO DE SAÍDA:
 {output_mode}
 
+Quando o modo for PLANO_DE_ENSINO, use o campo answer apenas para uma frase
+curta de apresentação, com no máximo 30 palavras. Não repita o plano no campo
+answer: todo o conteúdo detalhado deve ficar exclusivamente no campo plan.
+Mantenha textos e listas do plano objetivos, completos e sem redundâncias.
+
 Atualize o estado somente com dados sustentados pela mensagem atual ou pelas
 fontes listadas. Em confirmed_fields e human_decisions, evidence_quote deve ser
 uma citação literal curta da mensagem atual. Em document_evidence, use
@@ -669,7 +674,7 @@ def run_consultation(
         model=NEOPROFESSOR_MODEL,
         api_key=settings.openai_api_key,
         temperature=0.2,
-        max_completion_tokens=4000,
+        max_completion_tokens=settings.openai_max_completion_tokens,
         timeout=60,
         max_retries=2,
     )
