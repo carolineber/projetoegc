@@ -2,23 +2,25 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.analytics import update_feedback
+from app.analytics import get_explanation, get_teaching_plan, update_feedback
 from app.config import get_settings
 from app.db import fetch_mcn_rows
 from app.models import (
     ChatRequest,
     ChatResponse,
+    ExplanationResponse,
     FeedbackRequest,
     FeedbackResponse,
     IndexResponse,
 )
 from app.neoprofessor import run_consultation
 from app.rag import build_index
+from app.exports import build_teaching_plan_docx, build_teaching_plan_pdf
 
 app = FastAPI(title="Assistente de Inteligência Curricular")
 settings = get_settings()
@@ -108,3 +110,65 @@ def feedback(body: FeedbackRequest) -> FeedbackResponse:
         ) from exc
 
     return FeedbackResponse(saved=True, rating=body.rating)
+
+
+@app.get(
+    "/api/explanations/{response_id}",
+    response_model=ExplanationResponse,
+)
+def explanation(response_id: str, session_id: str) -> ExplanationResponse:
+    try:
+        stored = get_explanation(
+            settings.analytics_database_url,
+            session_id=session_id,
+            response_id=response_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível carregar a justificativa neste momento.",
+        ) from exc
+
+    return ExplanationResponse(**stored)
+
+
+@app.get("/api/exports/{response_id}")
+def export_teaching_plan(
+    response_id: str,
+    session_id: str,
+    format: str = Query(pattern="^(docx|pdf)$"),
+) -> StreamingResponse:
+    try:
+        plan = get_teaching_plan(
+            settings.analytics_database_url,
+            session_id=session_id,
+            response_id=response_id,
+        )
+        if format == "docx":
+            content = build_teaching_plan_docx(plan)
+            media_type = (
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            )
+        else:
+            content = build_teaching_plan_pdf(plan)
+            media_type = "application/pdf"
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível exportar o plano neste momento.",
+        ) from exc
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="plano-de-ensino.{format}"'
+            )
+        },
+    )

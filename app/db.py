@@ -64,3 +64,36 @@ def fetch_mcn_rows(settings: Settings) -> list[dict]:
                 }
             )
         return records
+
+
+def fetch_planning_reference_rows(settings: Settings) -> list[dict]:
+    engine = create_engine(settings.database_url)
+    query = text(
+        f"""
+        SELECT id, source_name, source_type, titulo, cadastro, conteudo
+        FROM "{settings.target_table}"
+        WHERE lower(conteudo) LIKE :teaching_plan
+           OR lower(conteudo) LIKE :learning_path
+        ORDER BY id
+        LIMIT 12
+        """
+    )
+    with engine.connect() as connection:
+        result = connection.execute(
+            query,
+            {
+                "teaching_plan": "%plano de ensino%",
+                "learning_path": "%trilha%",
+            },
+        )
+        return [
+            {
+                "id": str(row.id),
+                "source_name": row.source_name,
+                "source_type": row.source_type,
+                "titulo": row.titulo,
+                "cadastro": row.cadastro,
+                "text": row.conteudo,
+            }
+            for row in result
+        ]

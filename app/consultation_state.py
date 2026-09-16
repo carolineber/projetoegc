@@ -31,6 +31,7 @@ DEFAULT_STATE: dict = {
     "itens_que_exigem_validacao": [],
     "proximo_passo": "",
     "ultima_confirmacao_humana": None,
+    "plano_ensino": {},
 }
 
 

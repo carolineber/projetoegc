@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from langchain_core.callbacks import get_usage_metadata_callback
@@ -11,8 +11,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from app.config import NEOPROFESSOR_MODEL, Settings
 from app.analytics import record_interaction
+from app.config import NEOPROFESSOR_MODEL, Settings
 from app.consultation_state import (
     append_message,
     checkpoint_summary,
@@ -20,6 +20,7 @@ from app.consultation_state import (
     load_or_create_session,
     save_state,
 )
+from app.db import fetch_planning_reference_rows
 from app.rag import retrieve_context
 
 SYSTEM_PROMPT = """
@@ -53,6 +54,8 @@ PRINCÍPIOS PERMANENTES
     de entrada indispensável.
 11. Registre decisões, responsáveis, evidências, alternativas, pendências e
     próximo passo. Nunca declare uma ação educativa aprovada.
+12. Nunca mostre nomes técnicos de arquivos ou tabelas ao usuário. Em especial,
+    trate “espens_clean.xlsx” apenas como “Ações Educativas ESPEN”.
 
 FLUXO
 COMPREENDER → ORGANIZAR → IDENTIFICAR LACUNAS → PERGUNTAR EM BLOCOS CURTOS →
@@ -84,6 +87,15 @@ Use apenas as seções necessárias, preservando esta ordem:
 Use “proposta preliminar”, “recomendação para validação” ou “alternativa
 coconstruída”; jamais apresente recomendação como decisão institucional.
 
+ENTREGÁVEL DE PLANEJAMENTO
+Quando o modo de saída recebido for PLANO_DE_ENSINO, produza obrigatoriamente
+um plano de ensino completo com trilha de aprendizagem. Use somente informações
+confirmadas e evidências das bases. Para qualquer dado necessário que ainda não
+esteja disponível, escreva “A definir mediante validação”, sem inventar. A
+trilha deve apresentar uma sequência pedagógica coerente, e cada etapa deve
+conter objetivo, conteúdos, metodologia, carga horária, avaliação e alinhamento
+com a MCN quando houver evidência pertinente.
+
 REGISTRO INTERNO
 Mantenha decisões, evidências, pendências, etapa e próximo passo exclusivamente
 em state_updates. Nunca inclua “Registro de controle”, fontes, identificadores
@@ -95,6 +107,29 @@ REQUIRED_DIAGNOSTIC_FIELDS = {
     "problema_ou_oportunidade",
     "publico",
     "desempenho_esperado",
+}
+FIELD_KEY_ALIASES = {
+    "natureza do problema de desempenho": "problema_ou_oportunidade",
+    "problema ou oportunidade": "problema_ou_oportunidade",
+    "problema_ou_oportunidade": "problema_ou_oportunidade",
+    "publico": "publico",
+    "publico alvo": "publico",
+    "publico-alvo": "publico",
+    "desempenho esperado": "desempenho_esperado",
+    "desempenho_esperado": "desempenho_esperado",
+    "evidencias": "evidencias",
+    "evidencias de desempenho": "evidencias",
+    "restricoes": "restricoes",
+    "restricoes ou condicoes": "restricoes",
+    "restricoes ou condicoes especificas": "restricoes",
+    "carga horaria": "carga_horaria",
+    "modalidade": "modalidade",
+    "numero de participantes": "numero_participantes",
+    "numero participantes": "numero_participantes",
+    "metodologia": "metodologia",
+    "trilha pratica preferida": "metodologia",
+    "avaliacao": "avaliacao",
+    "forma de avaliacao desejada": "avaliacao",
 }
 HUMAN_CONFIRMATION_MARKERS = (
     "confirmo",
@@ -110,6 +145,19 @@ HUMAN_CONFIRMATION_MARKERS = (
     "opção",
     "alternativa",
 )
+EXPLICIT_PLAN_REQUEST_MARKERS = (
+    "gere o plano",
+    "gerar o plano",
+    "crie o plano",
+    "criar o plano",
+    "monte o plano",
+    "montar o plano",
+    "faça o plano",
+    "fazer o plano",
+    "plano de ensino",
+    "gere a trilha",
+    "crie a trilha",
+)
 HIGH_IMPACT_TERMS = (
     "obrigatoriedade",
     "certificação",
@@ -117,10 +165,23 @@ HIGH_IMPACT_TERMS = (
     "prioridade institucional",
     "aprovação",
 )
+MCN_SOURCE_LABEL = "Matriz Curricular Nacional - 2026"
+ACTIONS_SOURCE_LABEL = "Ações Educativas ESPEN"
 
 
 class ConfirmedField(BaseModel):
-    key: str = Field(description="Nome canônico do campo pedagógico.")
+    key: Literal[
+        "problema_ou_oportunidade",
+        "publico",
+        "desempenho_esperado",
+        "evidencias",
+        "restricoes",
+        "carga_horaria",
+        "modalidade",
+        "numero_participantes",
+        "metodologia",
+        "avaliacao",
+    ] = Field(description="Identificador canônico exato do campo pedagógico.")
     value: str = Field(description="Valor confirmado pelo usuário.")
     evidence_quote: str = Field(
         description="Citação literal curta da mensagem atual que sustenta o valor."
@@ -148,6 +209,27 @@ class StateUpdates(BaseModel):
     next_step: str
 
 
+class RecommendationRationale(BaseModel):
+    summary: str = Field(
+        description="Explicação curta e objetiva da razão da recomendação."
+    )
+    confirmed_inputs: list[str] = Field(
+        description="Informações confirmadas pelo usuário consideradas."
+    )
+    evidence: list[str] = Field(
+        description="Evidências documentais relevantes, sem IDs internos."
+    )
+    pedagogical_criteria: list[str] = Field(
+        description="Critérios pedagógicos que sustentam a recomendação."
+    )
+    tradeoffs: list[str] = Field(
+        description="Alternativas, consequências ou escolhas envolvidas."
+    )
+    limitations: list[str] = Field(
+        description="Limitações, lacunas e itens ainda sujeitos a validação."
+    )
+
+
 class AgentOutput(BaseModel):
     answer: str
     proposed_stage: str = Field(
@@ -155,6 +237,47 @@ class AgentOutput(BaseModel):
     )
     requires_human_validation: bool
     state_updates: StateUpdates
+    recommendation_rationale: RecommendationRationale | None = Field(
+        description=(
+            "Justificativa objetiva quando houver recomendação, alternativa ou "
+            "plano; caso contrário, null. Não revele raciocínio interno."
+        )
+    )
+
+
+class LearningPathStep(BaseModel):
+    sequence: int
+    title: str
+    learning_objective: str
+    contents: list[str]
+    methodology: list[str]
+    workload: str
+    assessment: list[str]
+    mcn_alignment: list[str]
+
+
+class TeachingPlan(BaseModel):
+    title: str
+    rationale: str
+    target_audience: str
+    expected_performance: str
+    general_objective: str
+    specific_objectives: list[str]
+    modality: str
+    total_workload: str
+    learning_path: list[LearningPathStep]
+    teaching_methods: list[str]
+    resources: list[str]
+    learning_assessment: list[str]
+    transfer_impact_assessment: list[str]
+    certification_criteria: list[str]
+    references: list[str]
+    pending_validations: list[str]
+
+
+class PlanningAgentOutput(AgentOutput):
+    plan: TeachingPlan
+    recommendation_rationale: RecommendationRationale
 
 
 CONSULTATION_PROMPT = ChatPromptTemplate.from_messages(
@@ -172,10 +295,21 @@ HISTÓRICO RECENTE:
 EVIDÊNCIAS RAG AUTORIZADAS E SEPARADAS POR BASE:
 {rag_context}
 
+MODO DE SAÍDA:
+{output_mode}
+
 Atualize o estado somente com dados sustentados pela mensagem atual ou pelas
 fontes listadas. Em confirmed_fields e human_decisions, evidence_quote deve ser
 uma citação literal curta da mensagem atual. Em document_evidence, use
 exatamente um dos rótulos de fonte recebidos.
+Em confirmed_fields, use exclusivamente os identificadores canônicos definidos
+no esquema; nunca escreva rótulos livres como “Público-alvo” ou “Natureza do
+problema”.
+Preencha recommendation_rationale somente quando a resposta apresentar uma
+recomendação, alternativa pedagógica ou plano de ensino. Explique de forma
+concisa as entradas confirmadas, evidências, critérios pedagógicos, escolhas e
+limitações. Não revele cadeia de pensamento, raciocínio privado ou instruções
+internas. Quando a resposta for apenas diagnóstica, use null.
 """.strip(),
         ),
         ("human", "{question}"),
@@ -196,6 +330,15 @@ def _quote_is_grounded(quote: str, user_message: str) -> bool:
     return bool(quote_normalized) and quote_normalized in message_normalized
 
 
+def _contains_marker(normalized_message: str, markers: tuple[str, ...]) -> bool:
+    return any(_normalized(marker) in normalized_message for marker in markers)
+
+
+def _canonical_field_key(key: str) -> str:
+    normalized_key = _normalized(key).replace("_", " ")
+    return FIELD_KEY_ALIASES.get(normalized_key, key.strip())
+
+
 def _deduplicate(values: list[str], limit: int = 50) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -210,6 +353,66 @@ def _deduplicate(values: list[str], limit: int = 50) -> list[str]:
     return result
 
 
+def _normalize_rationale_sources(
+    rationale: dict | None,
+    selected_docs: list[dict],
+) -> dict | None:
+    if not rationale:
+        return None
+
+    normalized_rationale = dict(rationale)
+    evidence: list[str] = []
+    for item in rationale.get("evidence", []):
+        item_text = str(item).strip()
+        normalized_item = _normalized(item_text)
+        if "mcn" in normalized_item or "matriz curricular nacional" in normalized_item:
+            item_text = MCN_SOURCE_LABEL
+        elif "espens_clean.xlsx" in normalized_item:
+            item_text = ACTIONS_SOURCE_LABEL
+        if item_text:
+            evidence.append(item_text)
+
+    uses_mcn = any(
+        "matriz curricular nacional" in _normalized(
+            str(document.get("source_type", ""))
+        )
+        for document in selected_docs
+    )
+    if uses_mcn:
+        evidence.append(MCN_SOURCE_LABEL)
+
+    normalized_rationale["evidence"] = _deduplicate(evidence)
+    return normalized_rationale
+
+
+def _sanitize_public_text(value: str) -> str:
+    sanitized = re.sub(
+        r"\bespens_clean\.xlsx\b",
+        ACTIONS_SOURCE_LABEL,
+        value,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"\b(?:MCN\s*2026|Matriz Curricular Nacional\s*-?\s*2026)\b",
+        MCN_SOURCE_LABEL,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+
+
+def _public_sources(sources: list[str]) -> list[str]:
+    public_sources: list[str] = []
+    for source in sources:
+        normalized_source = _normalized(source)
+        if "espens_clean.xlsx" in normalized_source:
+            public_sources.append(ACTIONS_SOURCE_LABEL)
+        elif "mcn" in normalized_source or "matriz curricular nacional" in normalized_source:
+            public_sources.append(MCN_SOURCE_LABEL)
+        else:
+            public_sources.append(source)
+    return _deduplicate(public_sources)
+
+
 def _merge_state(
     state: dict,
     output: dict,
@@ -217,7 +420,11 @@ def _merge_state(
     allowed_sources: list[str],
 ) -> dict:
     updates = output["state_updates"]
-    confirmed_fields = state.setdefault("campos_confirmados", {})
+    confirmed_fields = {
+        _canonical_field_key(str(key)): value
+        for key, value in state.setdefault("campos_confirmados", {}).items()
+    }
+    state["campos_confirmados"] = confirmed_fields
 
     objective = str(updates.get("objetivo", "")).strip()
     if objective and _normalized(objective) in _normalized(user_message):
@@ -225,7 +432,7 @@ def _merge_state(
 
     new_confirmations: list[str] = []
     for item in updates.get("confirmed_fields", []):
-        key = str(item.get("key", "")).strip()
+        key = _canonical_field_key(str(item.get("key", "")))
         value = str(item.get("value", "")).strip()
         quote = str(item.get("evidence_quote", "")).strip()
         if key and value and _quote_is_grounded(quote, user_message):
@@ -260,8 +467,8 @@ def _merge_state(
     state["proximo_passo"] = str(updates.get("next_step", "")).strip()
 
     user_normalized = _normalized(user_message)
-    has_confirmation_marker = any(
-        marker in user_normalized for marker in HUMAN_CONFIRMATION_MARKERS
+    has_confirmation_marker = _contains_marker(
+        user_normalized, HUMAN_CONFIRMATION_MARKERS
     )
     accepted_decisions: list[str] = []
     if has_confirmation_marker:
@@ -293,6 +500,83 @@ def determine_stage(state: dict, requires_human_validation: bool) -> str:
     if not state.get("decisoes_humanas"):
         return "ALTERNATIVAS"
     return "PLANEJAMENTO"
+
+
+def _planning_requested(message: str, state: dict) -> bool:
+    normalized_message = _normalized(message)
+    if _contains_marker(normalized_message, EXPLICIT_PLAN_REQUEST_MARKERS):
+        return True
+
+    has_confirmation = _contains_marker(
+        normalized_message, HUMAN_CONFIRMATION_MARKERS
+    )
+    return bool(
+        has_confirmation
+        and state.get("estado_atual") in {"ALTERNATIVAS", "VALIDACAO"}
+        and state.get("recomendacoes_do_agente")
+    )
+
+
+def _format_list(values: list[str]) -> str:
+    clean_values = [str(value).strip() for value in values if str(value).strip()]
+    if not clean_values:
+        clean_values = ["A definir mediante validação"]
+    return "\n".join(f"- {value}" for value in clean_values)
+
+
+def _render_teaching_plan(plan: TeachingPlan) -> str:
+    path_sections: list[str] = []
+    for step in sorted(plan.learning_path, key=lambda item: item.sequence):
+        path_sections.append(
+            "\n".join(
+                [
+                    f"### Etapa {step.sequence} — {step.title}",
+                    f"**Objetivo:** {step.learning_objective}",
+                    "**Conteúdos:**",
+                    _format_list(step.contents),
+                    "**Metodologia:**",
+                    _format_list(step.methodology),
+                    f"**Carga horária:** {step.workload}",
+                    "**Avaliação:**",
+                    _format_list(step.assessment),
+                    "**Alinhamento com a MCN:**",
+                    _format_list(step.mcn_alignment),
+                ]
+            )
+        )
+    if not path_sections:
+        path_sections.append("- A definir mediante validação")
+
+    return "\n\n".join(
+        [
+            f"# Plano de Ensino — {plan.title}",
+            "## 1. Identificação e justificativa",
+            f"**Público-alvo:** {plan.target_audience}",
+            f"**Modalidade:** {plan.modality}",
+            f"**Carga horária total:** {plan.total_workload}",
+            f"**Justificativa:** {plan.rationale}",
+            f"**Desempenho esperado:** {plan.expected_performance}",
+            "## 2. Objetivos",
+            f"**Objetivo geral:** {plan.general_objective}",
+            "**Objetivos específicos:**\n" + _format_list(plan.specific_objectives),
+            "## 3. Trilha de aprendizagem",
+            "\n\n".join(path_sections),
+            "## 4. Estratégias de ensino",
+            _format_list(plan.teaching_methods),
+            "## 5. Recursos necessários",
+            _format_list(plan.resources),
+            "## 6. Avaliação da aprendizagem",
+            _format_list(plan.learning_assessment),
+            "## 7. Avaliação de transferência e impacto",
+            _format_list(plan.transfer_impact_assessment),
+            "## 8. Critérios de certificação",
+            _format_list(plan.certification_criteria),
+            "## 9. Referências",
+            _format_list(plan.references),
+            "## 10. Pendências para validação humana",
+            _format_list(plan.pending_validations),
+        ]
+    )
 
 
 def _validate_answer(answer: str, state: dict) -> str:
@@ -356,11 +640,21 @@ def run_consultation(
         )
 
     session_id, state = load_or_create_session(requested_session_id)
+    planning_requested = _planning_requested(question, state)
     recent_messages = get_recent_messages(session_id)
     search_query = " ".join(
         filter(None, [_consultation_context(state), question])
     )
     selected_docs, sources = retrieve_context(search_query, settings)
+    if planning_requested:
+        selected_ids = {str(doc.get("id")) for doc in selected_docs}
+        for reference in fetch_planning_reference_rows(settings):
+            if str(reference["id"]) not in selected_ids:
+                selected_docs.append(reference)
+                sources.append(
+                    f"{reference['source_name']} · registro {reference['id']}"
+                )
+                selected_ids.add(str(reference["id"]))
 
     separated_context: list[str] = []
     for doc in selected_docs:
@@ -375,12 +669,13 @@ def run_consultation(
         model=NEOPROFESSOR_MODEL,
         api_key=settings.openai_api_key,
         temperature=0.2,
-        max_completion_tokens=1800,
+        max_completion_tokens=4000,
         timeout=60,
         max_retries=2,
     )
+    output_schema = PlanningAgentOutput if planning_requested else AgentOutput
     structured_model = model.with_structured_output(
-        AgentOutput,
+        output_schema,
         method="json_schema",
         strict=True,
     )
@@ -394,17 +689,36 @@ def run_consultation(
                 ),
                 "rag_context": context_text,
                 "question": question,
+                "output_mode": (
+                    "PLANO_DE_ENSINO" if planning_requested else "CONSULTORIA"
+                ),
             }
         )
     input_tokens, output_tokens = _usage_totals(usage_callback.usage_metadata)
-    if not isinstance(structured_output, AgentOutput):
+    if not isinstance(structured_output, output_schema):
         raise ValueError("O modelo não retornou uma resposta estruturada utilizável.")
     output = structured_output.model_dump()
-    state = _merge_state(state, output, question, sources)
-    state["estado_atual"] = determine_stage(
-        state, bool(output.get("requires_human_validation"))
+    has_recommendation = bool(
+        planning_requested
+        or output.get("state_updates", {}).get("recommendations")
     )
-    answer = _validate_answer(str(output["answer"]), state)
+    rationale = (
+        output.get("recommendation_rationale") if has_recommendation else None
+    )
+    rationale = _normalize_rationale_sources(rationale, selected_docs)
+    state = _merge_state(state, output, question, sources)
+    if planning_requested:
+        plan = structured_output.plan
+        state["plano_ensino"] = plan.model_dump()
+        state["estado_atual"] = "PLANEJAMENTO"
+        answer = _render_teaching_plan(plan)
+    else:
+        state["estado_atual"] = determine_stage(
+            state, bool(output.get("requires_human_validation"))
+        )
+        answer = _validate_answer(str(output["answer"]), state)
+    answer = _sanitize_public_text(answer)
+    public_sources = _public_sources(sources)
     response_id = str(uuid4())
 
     append_message(session_id, "user", question)
@@ -413,7 +727,7 @@ def run_consultation(
         "assistant",
         answer,
         {
-            "sources": sources,
+            "sources": public_sources,
             "stage": state["estado_atual"],
             "requires_human_validation": bool(
                 output.get("requires_human_validation")
@@ -421,6 +735,8 @@ def run_consultation(
             "response_id": response_id,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "has_explanation": bool(rationale),
+            "has_teaching_plan": planning_requested,
         },
     )
     save_state(session_id, state)
@@ -433,11 +749,15 @@ def run_consultation(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         model=NEOPROFESSOR_MODEL,
+        explanation=rationale,
+        teaching_plan=(
+            structured_output.plan.model_dump() if planning_requested else None
+        ),
     )
 
     return {
         "answer": answer,
-        "sources": sources,
+        "sources": public_sources,
         "session_id": session_id,
         "response_id": response_id,
         "stage": state["estado_atual"],
@@ -445,4 +765,6 @@ def run_consultation(
         "requires_human_validation": bool(
             output.get("requires_human_validation")
         ),
+        "has_explanation": bool(rationale),
+        "has_teaching_plan": planning_requested,
     }
