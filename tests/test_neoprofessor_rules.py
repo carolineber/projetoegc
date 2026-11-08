@@ -11,14 +11,21 @@ from app.neoprofessor import (
     REQUIRED_DIAGNOSTIC_FIELDS,
     TeachingPlan,
     _merge_state,
+    _asks_for_all,
+    _ensure_actionable_diagnostic_answer,
+    _extract_declared_fields,
+    _is_mcn_question,
+    _mentions_human_rights,
     _normalize_rationale_sources,
     _planning_requested,
     _public_sources,
     _render_teaching_plan,
+    _render_fundamental_rights_scope,
     _sanitize_public_text,
     _usage_totals,
     _validate_answer,
     determine_stage,
+    run_consultation,
 )
 
 
@@ -46,6 +53,95 @@ def agent_output(**overrides) -> dict:
 
 
 class NeoprofessorRulesTest(unittest.TestCase):
+    def test_incomplete_diagnostic_always_has_an_actionable_question(self) -> None:
+        state = deepcopy(DEFAULT_STATE)
+        answer = _ensure_actionable_diagnostic_answer(
+            "Vamos avançar no planejamento.", state
+        )
+
+        self.assertIn("?", answer)
+        self.assertIn("situações de trabalho", answer)
+
+    def test_diagnostic_answer_is_replaced_by_grounded_next_step(self) -> None:
+        state = deepcopy(DEFAULT_STATE)
+        answer = "Defina agora a carga horária?"
+
+        result = _ensure_actionable_diagnostic_answer(answer, state)
+
+        self.assertNotIn("carga horária", result)
+        self.assertIn("situações de trabalho", result)
+
+    def test_literal_planning_facts_are_extracted_from_initial_request(self) -> None:
+        fields = _extract_declared_fields(
+            "Vamos planejar uma ação educativa sobre comunicação não violenta "
+            "para policiais penais, com a intenção de reduzir ruídos de comunicação."
+        )
+
+        self.assertEqual(fields["tema"], "comunicação não violenta")
+        self.assertEqual(fields["publico"], "policiais penais")
+        self.assertEqual(
+            fields["desempenho_esperado"], "reduzir ruídos de comunicação"
+        )
+
+    def test_mcn_and_follow_up_intents_are_recognized(self) -> None:
+        self.assertTrue(_is_mcn_question("Quais competências existem na MCN?"))
+        self.assertTrue(_mentions_human_rights("Direitos humanos"))
+        self.assertTrue(_asks_for_all("Cite todas"))
+
+    def test_rights_scope_renderer_declares_scope_and_limits(self) -> None:
+        rows = [
+            {
+                "cadastro": "MCN_2026_0003",
+                "Competências (capacidades de/para)": "Prevenir violações.",
+                "Categoria": "Geral",
+                "Cargo": "Policial Penal",
+                "Eixo Funcional": "Policiamento Penal",
+                "Unidade Temática": "Ouvidoria e Corregedoria",
+                "Conhecimento Crítico e para Prática": "Atividade correcional",
+            }
+        ]
+
+        answer = _render_fundamental_rights_scope(rows, show_all=True)
+
+        self.assertIn("Sociojurídica e Direitos Fundamentais", answer)
+        self.assertIn("MCN_2026_0003", answer)
+        self.assertIn("completa apenas para essa subcategoria", answer)
+
+    def test_cite_all_reuses_the_previous_human_rights_topic(self) -> None:
+        rows = [
+            {
+                "cadastro": "MCN_2026_0003",
+                "Competências (capacidades de/para)": "Prevenir violações.",
+                "Categoria": "Geral",
+            }
+        ]
+        with (
+            patch(
+                "app.neoprofessor.load_or_create_session",
+                return_value=("session-test", deepcopy(DEFAULT_STATE)),
+            ),
+            patch(
+                "app.neoprofessor.get_recent_messages",
+                return_value=[
+                    {
+                        "role": "user",
+                        "content": "Quais competências se relacionam a direitos humanos?",
+                    }
+                ],
+            ),
+            patch(
+                "app.neoprofessor.fetch_mcn_fundamental_rights_rows",
+                return_value=rows,
+            ),
+            patch("app.neoprofessor.append_message"),
+            patch("app.neoprofessor.record_interaction"),
+        ):
+            result = run_consultation("cite todas", get_settings(), None)
+
+        self.assertIn("MCN_2026_0003", result["answer"])
+        self.assertIn("completa apenas para essa subcategoria", result["answer"])
+        self.assertEqual(result["sources"], ["Matriz Curricular Nacional - 2026"])
+
     def test_completion_limit_defaults_to_eight_thousand_tokens(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
             settings = get_settings()

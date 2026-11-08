@@ -175,11 +175,13 @@ def get_recent_messages(session_id: str, limit: int = 10) -> list[dict[str, str]
 
 
 def checkpoint_summary(state: dict) -> str:
-    confirmed_count = len(state.get("informacoes_confirmadas", []))
+    informed_count = len(state.get("campos_confirmados", {}))
     pending_count = len(state.get("lacunas", [])) + len(
         state.get("itens_que_exigem_validacao", [])
     )
+    decision_count = len(state.get("decisoes_humanas", []))
     return (
-        f"{confirmed_count} informação(ões) confirmada(s) · "
-        f"{pending_count} pendência(s)"
+        f"{informed_count} informação(ões) fornecida(s) · "
+        f"{pending_count} esclarecimento(s) necessário(s) · "
+        f"{decision_count} decisão(ões) validada(s)"
     )
