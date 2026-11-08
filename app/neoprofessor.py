@@ -20,7 +20,10 @@ from app.consultation_state import (
     load_or_create_session,
     save_state,
 )
-from app.db import fetch_planning_reference_rows
+from app.db import (
+    fetch_mcn_fundamental_rights_rows,
+    fetch_planning_reference_rows,
+)
 from app.rag import retrieve_context
 
 SYSTEM_PROMPT = """
@@ -73,6 +76,13 @@ CONDUTA EM CADA INTERAÇÃO
 Identifique objetivo, etapa, dados já confirmados, lacunas e contradições.
 Decida se deve perguntar, sintetizar, recomendar ou aguardar validação.
 Se precisar perguntar, explique brevemente por quê e faça poucas perguntas.
+Durante o diagnóstico incompleto, termine sempre com uma pergunta concreta que
+permita preencher a próxima lacuna. Nunca responda apenas que irá planejar,
+avançar ou continuar. Trate confirmações curtas como “ok”, “vamos” e “prossiga”
+como autorização para fazer a próxima pergunta pendente.
+Registre em confirmed_fields toda informação declarada literalmente pelo
+usuário, inclusive tema, público e mudança esperada. Isso não transforma a
+informação fornecida em decisão institucional validada.
 Se houver informação suficiente, produza recomendação preliminar rastreável e
 indique explicitamente o que depende de validação humana.
 
@@ -109,6 +119,8 @@ REQUIRED_DIAGNOSTIC_FIELDS = {
     "desempenho_esperado",
 }
 FIELD_KEY_ALIASES = {
+    "tema": "tema",
+    "tema informado": "tema",
     "natureza do problema de desempenho": "problema_ou_oportunidade",
     "problema ou oportunidade": "problema_ou_oportunidade",
     "problema_ou_oportunidade": "problema_ou_oportunidade",
@@ -171,6 +183,7 @@ ACTIONS_SOURCE_LABEL = "Ações Educativas ESPEN"
 
 class ConfirmedField(BaseModel):
     key: Literal[
+        "tema",
         "problema_ou_oportunidade",
         "publico",
         "desempenho_esperado",
@@ -344,6 +357,35 @@ def _canonical_field_key(key: str) -> str:
     return FIELD_KEY_ALIASES.get(normalized_key, key.strip())
 
 
+def _extract_declared_fields(user_message: str) -> dict[str, str]:
+    """Extract only simple, literal planning facts from common user phrasing."""
+    extracted: dict[str, str] = {}
+    topic_match = re.search(
+        r"\bsobre\s+(.+?)\s+para\s+", user_message, flags=re.IGNORECASE
+    )
+    if topic_match:
+        extracted["tema"] = topic_match.group(1).strip(" ,.;")
+
+    audience_match = re.search(
+        r"\bpara\s+(.+?)(?:,\s*(?:com|visando)|\s+com\s+a\s+inten[cç][aã]o|[.;]|$)",
+        user_message,
+        flags=re.IGNORECASE,
+    )
+    if audience_match:
+        extracted["publico"] = audience_match.group(1).strip(" ,.;")
+
+    performance_match = re.search(
+        r"\b(?:inten[cç][aã]o|objetivo)\s+de\s+(.+?)(?:[.;]|$)",
+        user_message,
+        flags=re.IGNORECASE,
+    )
+    if performance_match:
+        extracted["desempenho_esperado"] = performance_match.group(1).strip(
+            " ,.;"
+        )
+    return extracted
+
+
 def _deduplicate(values: list[str], limit: int = 50) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -444,6 +486,11 @@ def _merge_state(
             confirmed_fields[key] = value
             new_confirmations.append(f"{key}: {value}")
 
+    for key, value in _extract_declared_fields(user_message).items():
+        if key not in confirmed_fields:
+            confirmed_fields[key] = value
+            new_confirmations.append(f"{key}: {value}")
+
     state["informacoes_confirmadas"] = _deduplicate(
         state.get("informacoes_confirmadas", []) + new_confirmations
     )
@@ -463,7 +510,24 @@ def _merge_state(
     state["recomendacoes_do_agente"] = _deduplicate(
         updates.get("recommendations", [])
     )
-    state["lacunas"] = _deduplicate(updates.get("gaps", []))
+    missing_diagnostic_fields = REQUIRED_DIAGNOSTIC_FIELDS - set(confirmed_fields)
+    if missing_diagnostic_fields:
+        gap_labels = {
+            "problema_ou_oportunidade": (
+                "Descrever a situação de trabalho que motiva a ação educativa."
+            ),
+            "publico": "Identificar o público diretamente afetado.",
+            "desempenho_esperado": (
+                "Definir o comportamento observável que deverá melhorar."
+            ),
+        }
+        state["lacunas"] = [
+            gap_labels[key]
+            for key in REQUIRED_DIAGNOSTIC_FIELDS
+            if key in missing_diagnostic_fields
+        ]
+    else:
+        state["lacunas"] = _deduplicate(updates.get("gaps", []))
     state["contradicoes"] = _deduplicate(updates.get("contradictions", []))
     state["riscos"] = _deduplicate(updates.get("risks", []))
     state["itens_que_exigem_validacao"] = _deduplicate(
@@ -612,6 +676,127 @@ def _validate_answer(answer: str, state: dict) -> str:
     return cleaned
 
 
+def _ensure_actionable_diagnostic_answer(answer: str, state: dict) -> str:
+    if state.get("estado_atual") != "DIAGNOSTICO":
+        return answer
+
+    confirmed_fields = state.get("campos_confirmados", {})
+    confirmed = set(confirmed_fields)
+    if "problema_ou_oportunidade" not in confirmed:
+        question = (
+            "Em quais situações de trabalho o problema aparece com maior "
+            "frequência e que efeito ele produz?"
+        )
+    elif "publico" not in confirmed:
+        question = "Qual é o público diretamente afetado por esse problema?"
+    else:
+        question = (
+            "Qual comportamento observável deverá melhorar ao final da ação "
+            "educativa?"
+        )
+    field_labels = {
+        "tema": "tema",
+        "publico": "público",
+        "desempenho_esperado": "mudança esperada",
+        "problema_ou_oportunidade": "situação motivadora",
+    }
+    summary = "; ".join(
+        f"{field_labels.get(key, key)}: {value}"
+        for key, value in confirmed_fields.items()
+        if key in field_labels
+    )
+    opening = (
+        f"**Síntese do entendimento:** {summary}." if summary else
+        "**Síntese do entendimento:** ainda precisamos caracterizar a necessidade."
+    )
+    return f"{opening}\n\n**Próximo passo:** {question}"
+
+
+def _is_mcn_question(message: str) -> bool:
+    normalized = _normalized(message)
+    markers = (
+        "mcn",
+        "matriz curricular nacional",
+        "competencia",
+        "competencias",
+        "eixo funcional",
+        "unidade tematica",
+        "objetivo de aprendizagem",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def _mentions_human_rights(message: str) -> bool:
+    normalized = _normalized(message)
+    return "direitos humanos" in normalized or "direito humano" in normalized
+
+
+def _asks_for_all(message: str) -> bool:
+    normalized = _normalized(message)
+    markers = ("cite todas", "listar todas", "liste todas", "todas elas")
+    return any(marker in normalized for marker in markers)
+
+
+def _render_fundamental_rights_scope(rows: list[dict], show_all: bool) -> str:
+    displayed_rows = rows if show_all else rows[:6]
+    parts = [
+        (
+            "A matriz fornecida não usa “Direitos Humanos” como nome de uma "
+            "classificação. O recorte documental verificável mais direto é a "
+            "subcategoria **Sociojurídica e Direitos Fundamentais**, que contém "
+            f"**{len(rows)} competências**."
+        )
+    ]
+    if not show_all and len(rows) > len(displayed_rows):
+        parts.append(
+            f"Abaixo estão as primeiras {len(displayed_rows)}. Para receber o "
+            "recorte completo, peça “cite todas”."
+        )
+
+    for index, row in enumerate(displayed_rows, start=1):
+        competence = str(row.get("Competências (capacidades de/para)", "")).strip()
+        location = "; ".join(
+            value
+            for value in (
+                f"Categoria: {row.get('Categoria', '')}" if row.get("Categoria") else "",
+                f"Cargo: {row.get('Cargo', '')}" if row.get("Cargo") else "",
+                f"Eixo funcional: {row.get('Eixo Funcional', '')}"
+                if row.get("Eixo Funcional")
+                else "",
+                f"Unidade temática: {row.get('Unidade Temática', '')}"
+                if row.get("Unidade Temática")
+                else "",
+                f"Conhecimento crítico: {row.get('Conhecimento Crítico e para Prática', '')}"
+                if row.get("Conhecimento Crítico e para Prática")
+                else "",
+            )
+            if value
+        )
+        parts.append(
+            "\n".join(
+                [
+                    (
+                        f"### {index}. Referência interna "
+                        f"{row.get('cadastro', 'não disponível')}"
+                    ),
+                    f"**Competência:** {competence}",
+                    f"**Localização na matriz:** {location}",
+                    (
+                        "**Critério de inclusão:** registro classificado no "
+                        "documento como Sociojurídica e Direitos Fundamentais."
+                    ),
+                ]
+            )
+        )
+    if show_all:
+        parts.append(
+            "A lista acima é completa apenas para essa subcategoria documental; "
+            "não representa uma classificação oficial de todas as possíveis "
+            "relações transversais com direitos humanos."
+        )
+    return "\n\n".join(parts)
+
+
 def _consultation_context(state: dict) -> str:
     return " ".join(
         [
@@ -639,18 +824,78 @@ def run_consultation(
     settings: Settings,
     requested_session_id: str | None,
 ) -> dict[str, Any]:
+    session_id, state = load_or_create_session(requested_session_id)
+    planning_requested = _planning_requested(question, state)
+    recent_messages = get_recent_messages(session_id)
+    recent_user_text = " ".join(
+        message["content"]
+        for message in recent_messages
+        if message.get("role") == "user"
+    )
+    rights_topic = _mentions_human_rights(question) or (
+        _asks_for_all(question) and _mentions_human_rights(recent_user_text)
+    )
+    if rights_topic:
+        rows = fetch_mcn_fundamental_rights_rows(settings)
+        answer = _render_fundamental_rights_scope(
+            rows, show_all=_asks_for_all(question)
+        )
+        response_id = str(uuid4())
+        sources = [MCN_SOURCE_LABEL]
+        append_message(session_id, "user", question)
+        append_message(
+            session_id,
+            "assistant",
+            answer,
+            {
+                "sources": sources,
+                "stage": state["estado_atual"],
+                "requires_human_validation": False,
+                "response_id": response_id,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "has_explanation": False,
+                "has_teaching_plan": False,
+            },
+        )
+        record_interaction(
+            settings.analytics_database_url,
+            session_id=session_id,
+            response_id=response_id,
+            user_message=question,
+            assistant_response=answer,
+            input_tokens=0,
+            output_tokens=0,
+            model="consulta estruturada MCN",
+        )
+        return {
+            "answer": answer,
+            "sources": sources,
+            "session_id": session_id,
+            "response_id": response_id,
+            "stage": state["estado_atual"],
+            "checkpoint": checkpoint_summary(state),
+            "requires_human_validation": False,
+            "has_explanation": False,
+            "has_teaching_plan": False,
+        }
+
     if not settings.openai_api_key:
         raise ValueError(
             "OPENAI_API_KEY não configurada. Adicione a chave ao arquivo .env."
         )
 
-    session_id, state = load_or_create_session(requested_session_id)
-    planning_requested = _planning_requested(question, state)
-    recent_messages = get_recent_messages(session_id)
     search_query = " ".join(
         filter(None, [_consultation_context(state), question])
     )
-    selected_docs, sources = retrieve_context(search_query, settings)
+    allowed_source_types = (
+        {"Matriz Curricular Nacional 2026"}
+        if _is_mcn_question(question)
+        else None
+    )
+    selected_docs, sources = retrieve_context(
+        search_query, settings, allowed_source_types=allowed_source_types
+    )
     if planning_requested:
         selected_ids = {str(doc.get("id")) for doc in selected_docs}
         for reference in fetch_planning_reference_rows(settings):
@@ -722,6 +967,7 @@ def run_consultation(
             state, bool(output.get("requires_human_validation"))
         )
         answer = _validate_answer(str(output["answer"]), state)
+        answer = _ensure_actionable_diagnostic_answer(answer, state)
     answer = _sanitize_public_text(answer)
     public_sources = _public_sources(sources)
     response_id = str(uuid4())

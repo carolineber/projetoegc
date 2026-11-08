@@ -66,6 +66,46 @@ def fetch_mcn_rows(settings: Settings) -> list[dict]:
         return records
 
 
+def fetch_mcn_fundamental_rights_rows(settings: Settings) -> list[dict]:
+    """Return the exact MCN scope classified by the source document itself."""
+    engine = create_engine(settings.database_url)
+    query = text(
+        f"""
+        SELECT id, source_row, source_name, source_type, cadastro, metadata_json
+        FROM "{settings.target_table}"
+        WHERE source_type = :source_type
+        ORDER BY source_row
+        LIMIT :max_rows
+        """
+    )
+    with engine.connect() as connection:
+        result = connection.execute(
+            query,
+            {
+                "source_type": "Matriz Curricular Nacional 2026",
+                "max_rows": settings.max_rows,
+            },
+        )
+        records: list[dict] = []
+        for row in result:
+            metadata = json.loads(row.metadata_json)
+            if metadata.get("Subcategoria") != (
+                "Sociojurídica e Direitos Fundamentais"
+            ):
+                continue
+            records.append(
+                {
+                    "id": str(row.id),
+                    "source_row": row.source_row,
+                    "source_name": row.source_name,
+                    "source_type": row.source_type,
+                    "cadastro": row.cadastro,
+                    **metadata,
+                }
+            )
+        return records
+
+
 def fetch_planning_reference_rows(settings: Settings) -> list[dict]:
     engine = create_engine(settings.database_url)
     query = text(

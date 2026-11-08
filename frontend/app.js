@@ -2,6 +2,7 @@ const chatEl = document.getElementById("chat");
 const formEl = document.getElementById("chat-form");
 const questionEl = document.getElementById("question");
 const quickQuestionsEl = document.querySelector(".quick-questions-list");
+const quickQuestionsSectionEl = document.querySelector(".quick-questions");
 const sendButtonEl = document.querySelector(".send-btn");
 const moduleSelectorEl = document.getElementById("module-selector");
 const agentWorkspaceEl = document.getElementById("agent-workspace");
@@ -56,6 +57,9 @@ function resetConsultation() {
   chatEl.replaceChildren();
   updateConsultationStatus({ stage: "DIAGNOSTICO", checkpoint: "" });
   questionEl.value = "";
+  if (quickQuestionsSectionEl) {
+    quickQuestionsSectionEl.hidden = false;
+  }
   questionEl.focus();
 }
 
@@ -399,6 +403,9 @@ async function submitQuestion(rawQuestion) {
   }
 
   addMessage(question, "user");
+  if (quickQuestionsSectionEl) {
+    quickQuestionsSectionEl.hidden = true;
+  }
   questionEl.value = "";
 
   try {
